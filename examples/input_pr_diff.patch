@@ -1,0 +1,5 @@
+--- a/worker/cli.py
++++ b/worker/cli.py
+@@ -40,3 +40,3 @@ def setup_arguments(parser):
+-    parser.add_argument("--timeout", type=int, default=30, help="Job timeout limit")
++    parser.add_argument("--deadline", type=int, default=60, help="Job timeout limit")
