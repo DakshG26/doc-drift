@@ -588,14 +588,20 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       updateStats(data);
       const sl = document.getElementById('symbolList');
       if (data.parsed_changes && data.parsed_changes.length > 0) {
-        sl.innerHTML = data.parsed_changes.map(c=>`
-          <div class="flex flex-wrap items-baseline gap-1.5">
-            <span class="badge b-blue" style="font-size:9px">${c.type}</span>
-            <span class="font-mono text-red-500 line-through text-[11px]">${c.old}</span>
-            <span class="text-slate-400">&rarr;</span>
-            <span class="font-mono text-green-600 text-[11px]">${c.new||'removed'}</span>
-            <span class="text-slate-400 text-[10px]">${c.file}:${c.line}</span>
-          </div>`).join('');
+        sl.innerHTML = data.parsed_changes.map(c=>{
+          let symbolHtml = '';
+          if (c.type === 'added') {
+            symbolHtml = `<span class="badge b-green" style="font-size:9px">ADDED</span> <span class="font-mono text-green-600 font-semibold text-[11px]">+ ${c.new || c.old}</span>`;
+          } else if (c.type === 'removed') {
+            symbolHtml = `<span class="badge b-red" style="font-size:9px">REMOVED</span> <span class="font-mono text-red-500 line-through text-[11px]">- ${c.old}</span>`;
+          } else {
+            symbolHtml = `<span class="badge b-blue" style="font-size:9px">${c.type}</span> <span class="font-mono text-red-500 line-through text-[11px]">${c.old}</span> <span class="text-slate-400">&rarr;</span> <span class="font-mono text-green-600 text-[11px]">${c.new || 'removed'}</span>`;
+          }
+          return `<div class="flex flex-wrap items-baseline gap-1.5 py-0.5">
+            ${symbolHtml}
+            <span class="text-slate-400 text-[10px] ml-1">${c.file}:${c.line}</span>
+          </div>`;
+        }).join('');
       } else {
         sl.innerHTML = '<span class="text-slate-400">No symbol changes detected.</span>';
       }
@@ -616,7 +622,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           return `<tr>
             <td><span class="font-mono text-sky-600 text-xs">${f.doc_file}:${f.doc_line}</span><div class="mt-1.5">${catBadge(cat)}</div></td>
             <td class="max-w-sm"><span class="font-mono text-slate-700 text-xs">${f.stale_sentence}</span>${reasoning}</td>
-            <td><span class="font-mono text-red-500 text-xs">${f.changed_symbol}</span> <span class="text-slate-400">&rarr;</span> <span class="font-mono text-green-600 text-xs">${f.new_symbol||'removed'}</span></td>
+            <td>${
+              (!f.new_symbol || f.changed_symbol === f.new_symbol)
+                ? `<span class="font-mono text-amber-600 text-xs font-semibold">${f.changed_symbol}</span>`
+                : `<span class="font-mono text-red-500 text-xs">${f.changed_symbol}</span> <span class="text-slate-400">&rarr;</span> <span class="font-mono text-green-600 text-xs">${f.new_symbol}</span>`
+            }</td>
             <td><span class="font-mono font-bold text-xs" style="color:${clr}">${pct}%</span><div class="cbar-wrap"><div class="cbar" style="width:${pct}%;background:${clr}"></div></div></td>
             <td class="max-w-xs">${fixHtml}</td>
           </tr>`;
