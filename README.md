@@ -53,12 +53,13 @@ flowchart TD
 ## ✨ Key Capabilities
 
 1. **Precision Sentence Citation**: Pinpoints the exact file and line number in documentation where stale text exists.
-2. **Unified Diff & AST Awareness**: Extracts renamed flags (`argparse`, `click`), default values, function signatures, and constants.
-3. **Hybrid Matching Strategy**:
+2. **Unified Diff & AST Awareness**: Extracts renamed flags (`argparse`, `click`), default values, function signatures, constants, **function return type annotations (`def f() -> Type`)**, and **HTTP API route endpoints (`@app.get/post/put/delete`)**.
+3. **Behavioral AI Reasoning Chains**: Local models (`gemma4:12b`, `llama3.2`, `qwen2.5-coder-64k`, `deepseek`) produce step-by-step logic chains explaining why a claim is invalidated, with millisecond latency metrics.
+4. **Hybrid Matching Strategy**:
    - **Exact Token Matching**: Zero false positives on literal flag names.
    - **Local Vector Embeddings (`all-MiniLM-L6-v2`)**: Detects paraphrased references without cloud dependencies.
-   - **Local LLM Verification (`gemma4:e4b` / `qwen` / `deepseek` via Ollama)**: Deep contextual verification with natural language explanations.
-4. **CI & Workflow Native**: Seamless integration via GitHub Actions, generating markdown summary tables in PR comments.
+   - **Local LLM Verification (Gemma 4 / Qwen / DeepSeek / Llama 3.2 via Ollama)**: Deep contextual verification with natural language explanations.
+5. **CI & Workflow Native**: Seamless integration via GitHub Actions, generating markdown summary tables in PR comments.
 
 ---
 

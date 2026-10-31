@@ -43,6 +43,10 @@ class DriftFinding:
     change_type: str
     match_method: str
     explanation: str = ""
+    drift_category: str = "flag"
+    reasoning: str = ""
+    verified_by_model: Optional[str] = None
+    latency_ms: Optional[int] = None
 
 
 def find_drift(
@@ -123,9 +127,18 @@ def find_drift(
                         explanation=f"Semantic vector match (cosine similarity {score:.2f})",
                     ))
 
-    # Optional Pass 3: Verification with Local Ollama LLM
-    if enable_llm_check and findings:
-        for f in findings:
+    # Pass 3: Categorization and Verification with Local Ollama LLM
+    for f in findings:
+        cat = "flag"
+        if "return_type" in f.change_type or "route" in f.change_type:
+            cat = "behavioral"
+        elif "parameter" in f.change_type or "default" in f.change_type or "constant" in f.change_type:
+            cat = "config"
+        elif "function" in f.change_type or "class" in f.change_type:
+            cat = "signature"
+        f.drift_category = cat
+
+        if enable_llm_check:
             res = verify_drift_with_llm(
                 old_symbol=f.changed_symbol,
                 new_symbol=f.new_symbol,
@@ -135,6 +148,10 @@ def find_drift(
             if res.get("is_drift", True):
                 f.confidence = max(f.confidence, res.get("confidence", 0.90))
                 f.explanation = res.get("explanation", f.explanation)
+                f.drift_category = res.get("drift_category", f.drift_category)
+                f.reasoning = res.get("reasoning", "")
+                f.verified_by_model = res.get("model")
+                f.latency_ms = res.get("latency_ms")
 
     # Deduplicate and sort
     seen = set()
