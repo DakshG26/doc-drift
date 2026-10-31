@@ -1,0 +1,33 @@
+{
+  "drift_detected": true,
+  "total_issues": 2,
+  "summary": "Found 2 documentation drift issue(s).",
+  "findings": [
+    {
+      "doc_file": "cli_reference.md",
+      "doc_line": 9,
+      "stale_sentence": "You can specify `--timeout` in seconds to terminate stalled worker jobs before failure.",
+      "changed_symbol": "--timeout",
+      "new_symbol": "--deadline",
+      "code_file": "worker/cli.py",
+      "code_line": 40,
+      "confidence": 0.96,
+      "change_type": "renamed",
+      "match_method": "exact",
+      "explanation": "Exact symbol '--timeout' detected in documentation."
+    },
+    {
+      "doc_file": "cli_reference.md",
+      "doc_line": 10,
+      "stale_sentence": "Default execution timeout is set to 30 seconds across all worker pools.",
+      "changed_symbol": "default=30",
+      "new_symbol": "default=60",
+      "code_file": "worker/cli.py",
+      "code_line": 40,
+      "confidence": 0.96,
+      "change_type": "default_changed",
+      "match_method": "exact",
+      "explanation": "Exact symbol 'default=30' detected in documentation."
+    }
+  ]
+}

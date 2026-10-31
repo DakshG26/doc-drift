@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Run Tests & Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run test suite
+        run: |
+          pytest tests/ -v --cov=doc_drift --cov-report=term-missing
+
+      - name: Validate example artifacts
+        run: |
+          test -f examples/input_pr_diff.patch
+          test -f examples/drift_report.json
+          python -m json.tool examples/drift_report.json > /dev/null
+          echo "Example artifacts are valid JSON and patch format."
