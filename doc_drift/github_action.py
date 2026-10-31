@@ -108,6 +108,7 @@ def fetch_pr_diff(repo: str, pr_num: int, token: str) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Doc Drift Detector")
     parser.add_argument("--diff-file", help="Path to unified diff / patch file")
+    parser.add_argument("--url", help="Direct GitHub Repository or Pull Request URL to analyze (e.g. pallets/click#2600)")
     parser.add_argument("--docs-dir", default=".", help="Root directory containing docs to inspect")
     parser.add_argument("--output", default="drift_report.json", help="Path to write JSON report")
     parser.add_argument("--fix", action="store_true", help="Automatically repair documentation files in place")
@@ -132,7 +133,21 @@ def main() -> None:
     env_repo = os.environ.get("GITHUB_REPOSITORY")
     env_pr = os.environ.get("PR_NUMBER")
 
-    if args.diff_file:
+    if args.url:
+        from .github_fetcher import fetch_target_from_url
+        import tempfile
+        print(f"Fetching GitHub target: {args.url}...")
+        fetched = fetch_target_from_url(args.url, token=env_token)
+        diff_text = fetched["diff_text"]
+        # Save fetched documentation to a temporary directory for scanning
+        temp_dir = tempfile.mkdtemp()
+        doc_dest = os.path.join(temp_dir, fetched["doc_name"])
+        with open(doc_dest, "w", encoding="utf-8") as fh:
+            fh.write(fetched["doc_text"])
+        args.docs_dir = temp_dir
+        env_repo = f"{fetched['owner']}/{fetched['repo']}"
+        env_pr = fetched["pr_number"]
+    elif args.diff_file:
         with open(args.diff_file, "r", encoding="utf-8") as f:
             diff_text = f.read()
     elif env_token and env_repo and env_pr:

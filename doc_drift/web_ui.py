@@ -2,7 +2,7 @@
 web_ui.py - Interactive Visual Dashboard for Documentation Drift Detection.
 Provides a local browser UI for reviewing pull request diffs side-by-side with
 documentation files, visualizing highlighted drift sentences, confidence meters,
-and testing 1-click documentation fixes.
+and testing 1-click documentation fixes. Supports direct GitHub URL analysis.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from .autofix import DocFix, _apply_symbol_replacement, generate_github_suggesti
 from .benchmark import run_benchmarks
 from .diff_parser import parse_diff
 from .doc_scanner import DocSentence, _parse_markdown_sentences
+from .github_fetcher import fetch_target_from_url
 from .reporter import generate_json_report, generate_markdown_summary
 from .semantic_matcher import find_drift
 
@@ -81,6 +82,8 @@ class DocDriftWebHandler(BaseHTTPRequestHandler):
 
         if path == "/api/analyze":
             self._handle_analyze(body)
+        elif path == "/api/analyze-github":
+            self._handle_analyze_github(body)
         else:
             self.send_error(404, "Endpoint not found")
 
@@ -97,11 +100,42 @@ class DocDriftWebHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(data, indent=2).encode("utf-8"))
 
+    def _handle_analyze_github(self, payload: dict[str, Any]) -> None:
+        url = payload.get("url", "").strip()
+        if not url:
+            self._serve_json({"error": "GitHub URL is required"}, status=400)
+            return
+
+        try:
+            target = fetch_target_from_url(url)
+            diff_text = target["diff_text"]
+            doc_text = target["doc_text"]
+            doc_name = target["doc_name"]
+
+            analysis = self._run_analysis_logic(diff_text, doc_text, doc_name)
+            analysis.update({
+                "source_url": url,
+                "owner": target["owner"],
+                "repo": target["repo"],
+                "pr_number": target["pr_number"],
+                "diff_text": diff_text,
+                "doc_text": doc_text,
+                "doc_name": doc_name,
+            })
+            self._serve_json(analysis)
+        except Exception as e:
+            logger.exception("GitHub URL analysis failed")
+            self._serve_json({"error": str(e)}, status=400)
+
     def _handle_analyze(self, payload: dict[str, Any]) -> None:
         diff_text = payload.get("diff", "")
         doc_text = payload.get("doc", "")
         doc_name = payload.get("doc_name", "README.md")
 
+        report = self._run_analysis_logic(diff_text, doc_text, doc_name)
+        self._serve_json(report)
+
+    def _run_analysis_logic(self, diff_text: str, doc_text: str, doc_name: str) -> dict[str, Any]:
         changes = parse_diff(diff_text)
         sentences = _parse_markdown_sentences(doc_name, doc_text)
         findings = find_drift(changes, sentences)
@@ -137,8 +171,7 @@ class DocDriftWebHandler(BaseHTTPRequestHandler):
             }
             for c in changes
         ]
-
-        self._serve_json(report)
+        return report
 
     def log_message(self, fmt: str, *args: Any) -> None:
         """Suppress noisy request logs in production."""
@@ -209,6 +242,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       </div>
     </header>
 
+    <!-- Direct GitHub URL Analyzer Bar -->
+    <div class="glass rounded-xl p-4 border border-sky-800/60 bg-sky-950/20 shadow-lg">
+      <div class="flex flex-col md:flex-row items-stretch md:items-center gap-3">
+        <div class="flex items-center gap-2 text-sky-400 font-semibold text-xs whitespace-nowrap">
+          <span class="text-base">🐙</span> GitHub URL:
+        </div>
+        <input id="githubUrlInput" type="text" placeholder="Paste GitHub PR or Repo link (e.g. https://github.com/DakshG26/doc-drift/pull/2 or pallets/click#2600)" class="flex-1 bg-black/60 border border-gray-700 rounded-lg px-3 py-2 text-xs text-gray-100 placeholder-gray-500 focus:outline-none focus:border-sky-400 font-mono">
+        <button id="analyzeGithubBtn" class="px-5 py-2 text-xs font-semibold rounded-lg bg-sky-500 hover:bg-sky-400 text-white transition flex items-center justify-center gap-2 shadow-md shadow-sky-500/20 whitespace-nowrap">
+          <span>🚀 Fetch & Analyze GitHub URL</span>
+        </button>
+      </div>
+      <div id="githubStatus" class="hidden text-xs text-sky-300 mt-2 flex items-center gap-2">
+        <span class="animate-pulse">⏳</span> Fetching PR diff and documentation from GitHub API...
+      </div>
+    </div>
+
     <!-- Benchmark Results Modal / Banner -->
     <div id="benchmarkBanner" class="hidden glass rounded-xl p-4 border-indigo-800 bg-indigo-950/30">
       <div class="flex items-center justify-between mb-2">
@@ -231,7 +280,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           </label>
           <span class="text-xs text-gray-500">AST Parser Ready</span>
         </div>
-        <textarea id="diffInput" rows="12" class="w-full bg-black/50 border border-gray-800 rounded-lg p-3 text-xs font-mono text-emerald-400 focus:outline-none focus:border-sky-500" placeholder="Paste unified git diff here..."></textarea>
+        <textarea id="diffInput" rows="12" class="w-full bg-black/50 border border-gray-800 rounded-lg p-3 text-xs font-mono text-emerald-400 focus:outline-none focus:border-sky-500" placeholder="Paste unified git diff here or use GitHub URL above..."></textarea>
         
         <!-- Detected Code Changes -->
         <div id="detectedSymbols" class="p-3 bg-gray-900/60 rounded-lg border border-gray-800 text-xs">
@@ -283,7 +332,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           </thead>
           <tbody id="findingsBody" class="divide-y divide-gray-800/60 font-mono">
             <tr>
-              <td colspan="5" class="py-8 text-center text-gray-500 italic">No analysis run yet. Click "Run Drift Analysis" above.</td>
+              <td colspan="5" class="py-8 text-center text-gray-500 italic">No analysis run yet. Paste a GitHub URL or click "Run Drift Analysis".</td>
             </tr>
           </tbody>
         </table>
@@ -328,6 +377,44 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const data = await res.json();
       currentAnalysis = data;
       renderAnalysis(data);
+    }
+
+    async function analyzeGithubUrl() {
+      const url = document.getElementById('githubUrlInput').value.trim();
+      if (!url) {
+        alert('Please enter a GitHub repository or pull request URL.');
+        return;
+      }
+
+      const statusEl = document.getElementById('githubStatus');
+      statusEl.classList.remove('hidden');
+
+      try {
+        const res = await fetch('/api/analyze-github', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+
+        const data = await res.json();
+        statusEl.classList.add('hidden');
+
+        if (data.error) {
+          alert('GitHub Analysis Error: ' + data.error);
+          return;
+        }
+
+        // Populate fields
+        document.getElementById('diffInput').value = data.diff_text || '';
+        document.getElementById('docInput').value = data.doc_text || '';
+        document.getElementById('docNameInput').value = data.doc_name || 'README.md';
+
+        currentAnalysis = data;
+        renderAnalysis(data);
+      } catch (err) {
+        statusEl.classList.add('hidden');
+        alert('Network error connecting to dashboard API: ' + err);
+      }
     }
 
     function renderAnalysis(data) {
@@ -420,6 +507,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     document.getElementById('loadSampleBtn').addEventListener('click', loadSamples);
     document.getElementById('analyzeBtn').addEventListener('click', runAnalysis);
+    document.getElementById('analyzeGithubBtn').addEventListener('click', analyzeGithubUrl);
     document.getElementById('runBenchmarkBtn').addEventListener('click', runBenchmark);
     document.getElementById('applyFixBtn').addEventListener('click', applyFixToDoc);
     document.getElementById('copyCommentBtn').addEventListener('click', () => {
