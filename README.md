@@ -121,6 +121,16 @@ control/negative-check | 0        | 0      | PASS (True Negative)
 =================================================================
 ```
 
+### 5. Launch Interactive Visual Dashboard (`--ui`)
+
+Start the interactive browser dashboard to test diffs and documentation side-by-side with confidence meters and 1-click AI fixes:
+
+```bash
+python -m doc_drift.github_action --ui
+```
+
+Visit `http://localhost:8765` in your browser.
+
 ---
 
 ## 📊 Sample Output

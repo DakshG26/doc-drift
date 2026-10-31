@@ -112,8 +112,15 @@ def main() -> None:
     parser.add_argument("--output", default="drift_report.json", help="Path to write JSON report")
     parser.add_argument("--fix", action="store_true", help="Automatically repair documentation files in place")
     parser.add_argument("--benchmark", action="store_true", help="Execute the historical open-source benchmark suite")
+    parser.add_argument("--ui", action="store_true", help="Launch the interactive visual web dashboard")
+    parser.add_argument("--port", type=int, default=8765, help="Port to serve web dashboard on (default: 8765)")
     parser.add_argument("--no-fail", action="store_true", help="Do not exit with code 1 if drift found")
     args = parser.parse_args()
+
+    if args.ui:
+        from .web_ui import launch_dashboard
+        launch_dashboard(port=args.port)
+        sys.exit(0)
 
     if args.benchmark:
         res = run_benchmarks()
