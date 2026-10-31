@@ -64,6 +64,8 @@ class DocDriftWebHandler(BaseHTTPRequestHandler):
         elif path == "/api/benchmark":
             results = run_benchmarks()
             self._serve_json(results)
+        elif path == "/api/ollama-models":
+            self._serve_ollama_models()
         else:
             self.send_error(404, "Endpoint not found")
 
@@ -174,6 +176,27 @@ class DocDriftWebHandler(BaseHTTPRequestHandler):
         ]
         return report
 
+    def _serve_ollama_models(self) -> None:
+        """Fetch running Ollama models from local API."""
+        import urllib.request
+        try:
+            with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=3) as r:
+                data = json.loads(r.read())
+            models = [
+                {
+                    "name": m["name"],
+                    "size_gb": round(m["size"] / 1e9, 1),
+                    "params": m["details"].get("parameter_size", "?"),
+                    "quant": m["details"].get("quantization_level", "?"),
+                    "family": m["details"].get("family", "?"),
+                    "capabilities": m.get("capabilities", []),
+                }
+                for m in data.get("models", [])
+            ]
+            self._serve_json({"status": "online", "models": models, "count": len(models)})
+        except Exception as e:
+            self._serve_json({"status": "offline", "models": [], "error": str(e)})
+
     def log_message(self, fmt: str, *args: Any) -> None:
         """Suppress noisy request logs in production."""
         pass
@@ -212,343 +235,313 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Doc Drift — AI Documentation Guardian</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    :root {
-      --brand: #38bdf8;
-      --glass: rgba(22,27,34,0.80);
-      --border: rgba(48,54,61,0.9);
-    }
-    * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
-    body {
-      background: #060b12;
-      color: #c9d1d9;
-      font-family: 'Inter', system-ui, sans-serif;
-      min-height: 100vh;
-      overflow-x: hidden;
-    }
-    .bg-mesh {
-      position: fixed; inset: 0; z-index: 0; pointer-events: none;
-      background:
-        radial-gradient(ellipse 80% 60% at 10% 10%, rgba(56,189,248,0.07) 0%, transparent 60%),
-        radial-gradient(ellipse 60% 50% at 90% 80%, rgba(99,102,241,0.06) 0%, transparent 55%),
-        linear-gradient(180deg, #060b12 0%, #0d1117 100%);
-    }
-    .grid-overlay {
-      position: fixed; inset: 0; z-index: 0; pointer-events: none;
-      background-image:
-        linear-gradient(rgba(56,189,248,0.025) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(56,189,248,0.025) 1px, transparent 1px);
-      background-size: 48px 48px;
-    }
-    .particle {
-      position: fixed; border-radius: 50%; pointer-events: none; z-index: 0;
-      animation: float-particle linear infinite;
-    }
-    @keyframes float-particle {
-      0% { transform: translateY(100vh) scale(0); opacity: 0; }
-      10% { opacity: 1; }
-      90% { opacity: 0.4; }
-      100% { transform: translateY(-10vh) scale(1); opacity: 0; }
-    }
-    .glass {
-      background: var(--glass);
-      backdrop-filter: blur(20px) saturate(180%);
-      -webkit-backdrop-filter: blur(20px) saturate(180%);
-      border: 1px solid var(--border);
-    }
-    .glass-bright {
-      background: rgba(30,36,46,0.90);
-      backdrop-filter: blur(24px);
-      border: 1px solid rgba(56,189,248,0.15);
-    }
-    .glow-brand { box-shadow: 0 0 0 1px rgba(56,189,248,0.2), 0 8px 32px rgba(56,189,248,0.12); }
-    .btn-primary {
-      background: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 100%);
-      color: #fff; font-weight: 600; letter-spacing: 0.01em;
-      box-shadow: 0 4px 20px rgba(56,189,248,0.35);
-      transition: all 0.2s; border: none; cursor: pointer;
-    }
-    .btn-primary:hover { background: linear-gradient(135deg, #38bdf8 0%, #7dd3fc 100%); transform: translateY(-1px); box-shadow: 0 6px 28px rgba(56,189,248,0.5); }
-    .btn-secondary {
-      background: rgba(30,36,48,0.9); border: 1px solid rgba(56,189,248,0.2);
-      color: #94a3b8; font-weight: 500; transition: all 0.2s; cursor: pointer;
-    }
-    .btn-secondary:hover { border-color: rgba(56,189,248,0.5); color: #e2e8f0; background: rgba(56,189,248,0.06); }
-    .btn-ghost {
-      background: rgba(30,36,48,0.7); border: 1px solid rgba(99,102,241,0.25);
-      color: #818cf8; font-weight: 500; transition: all 0.2s; cursor: pointer;
-    }
-    .btn-ghost:hover { border-color: rgba(99,102,241,0.5); background: rgba(99,102,241,0.08); color: #a5b4fc; }
-    .btn-success {
-      background: linear-gradient(135deg, #059669 0%, #10b981 100%);
-      color: #fff; font-weight: 600; box-shadow: 0 4px 16px rgba(16,185,129,0.3);
-      transition: all 0.2s; border: none; cursor: pointer;
-    }
-    .btn-success:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(16,185,129,0.45); }
-    .input-field {
-      background: rgba(6,11,18,0.8); border: 1px solid rgba(48,54,61,0.9); color: #e2e8f0;
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-    .input-field:focus { outline: none; border-color: rgba(56,189,248,0.6); box-shadow: 0 0 0 3px rgba(56,189,248,0.08); }
-    .code-area {
-      background: rgba(4,8,14,0.95); border: 1px solid rgba(48,54,61,0.8); color: #e2e8f0;
-      font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.7;
-      resize: vertical; transition: border-color 0.2s;
-    }
-    .code-area:focus { outline: none; border-color: rgba(56,189,248,0.4); }
-    .code-area.diff-area { color: #4ade80; }
-    .badge { display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 8px; }
-    .badge-behavioral { background: rgba(99,102,241,0.15); color: #a5b4fc; border: 1px solid rgba(99,102,241,0.3); }
-    .badge-config     { background: rgba(251,191,36,0.12); color: #fcd34d; border: 1px solid rgba(251,191,36,0.25); }
-    .badge-signature  { background: rgba(244,63,94,0.12);  color: #fb7185; border: 1px solid rgba(244,63,94,0.25); }
-    .badge-flag       { background: rgba(56,189,248,0.12); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.25); }
-    .badge-semantic   { background: rgba(16,185,129,0.12); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.25); }
-    .badge-issues     { background: rgba(248,113,113,0.12); color: #fca5a5; border: 1px solid rgba(248,113,113,0.3); }
-    .badge-clean      { background: rgba(52,211,153,0.12); color: #6ee7b7; border: 1px solid rgba(52,211,153,0.3); }
-    .badge-neutral    { background: rgba(100,116,139,0.15); color: #94a3b8; border: 1px solid rgba(100,116,139,0.3); }
-    .conf-bar-wrap { width: 56px; height: 5px; background: rgba(30,36,46,0.9); border-radius: 999px; overflow: hidden; }
-    .conf-bar { height: 100%; border-radius: 999px; transition: width 0.6s ease; }
-    .findings-table th { font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #64748b; padding: 12px 16px; }
-    .findings-table td { padding: 14px 16px; vertical-align: top; }
-    .findings-table tbody tr { border-top: 1px solid rgba(30,40,55,0.8); transition: background 0.15s; }
-    .findings-table tbody tr:hover { background: rgba(56,189,248,0.03); }
-    .reasoning-box { margin-top: 10px; padding: 10px 12px; background: rgba(6,11,18,0.9); border: 1px solid rgba(56,189,248,0.12); border-radius: 8px; font-size: 11px; line-height: 1.6; color: #94a3b8; }
-    .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: #34d399; animation: pulse-glow 2s infinite; }
-    @keyframes pulse-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(52,211,153,0.6); } 50% { box-shadow: 0 0 0 6px rgba(52,211,153,0); } }
-    .scan-line { height: 2px; width: 100%; background: linear-gradient(90deg, transparent 0%, #38bdf8 50%, transparent 100%); animation: scan 1.5s linear infinite; }
-    @keyframes scan { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.2); border-radius: 999px; }
-    .reveal { opacity: 0; transform: translateY(16px); animation: reveal 0.5s ease forwards; }
-    @keyframes reveal { to { opacity: 1; transform: translateY(0); } }
-    .shimmer { background: linear-gradient(90deg, rgba(30,40,55,0.5) 25%, rgba(56,189,248,0.08) 50%, rgba(30,40,55,0.5) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 6px; }
-    @keyframes shimmer { to { background-position: -200% 0; } }
-    .stat-card { background: rgba(13,17,23,0.95); border: 1px solid rgba(48,54,61,0.8); border-radius: 12px; padding: 16px 20px; text-align: center; min-width: 96px; }
-    .spinner { width: 14px; height: 14px; border: 2px solid rgba(56,189,248,0.3); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.7s linear infinite; display: inline-block; }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    body { background:#f5f7fa; color:#1e293b; font-family:'Inter',sans-serif; min-height:100vh; }
+    .topbar { background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 60%,#0369a1 100%); }
+    .card { background:#fff; border:1px solid #e2e8f0; border-radius:16px; box-shadow:0 1px 4px rgba(0,0,0,.06),0 4px 16px rgba(0,0,0,.04); }
+    .card-inset { background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; }
+    .field { background:#fff; border:1.5px solid #cbd5e1; border-radius:10px; color:#1e293b; font-size:13px; transition:border-color .2s,box-shadow .2s; outline:none; padding:10px 14px; width:100%; }
+    .field:focus { border-color:#0ea5e9; box-shadow:0 0 0 3px rgba(14,165,233,.12); }
+    .field-mono { font-family:'JetBrains Mono',monospace; font-size:12px; }
+    .field-code { background:#f8fafc; font-family:'JetBrains Mono',monospace; font-size:11.5px; line-height:1.75; resize:vertical; }
+    .field-diff { color:#16a34a; }
+    .btn { border-radius:10px; font-weight:600; font-size:13px; padding:9px 18px; cursor:pointer; transition:all .18s; display:inline-flex; align-items:center; gap:7px; border:none; }
+    .btn-blue { background:linear-gradient(135deg,#0284c7,#38bdf8); color:#fff; box-shadow:0 2px 12px rgba(14,165,233,.35); }
+    .btn-blue:hover { background:linear-gradient(135deg,#0369a1,#0ea5e9); transform:translateY(-1px); box-shadow:0 4px 20px rgba(14,165,233,.4); }
+    .btn-blue:disabled { opacity:.6; cursor:not-allowed; transform:none; }
+    .btn-outline { background:#fff; border:1.5px solid #cbd5e1; color:#475569; }
+    .btn-outline:hover { border-color:#94a3b8; color:#1e293b; background:#f8fafc; }
+    .btn-indigo { background:#eef2ff; border:1.5px solid #c7d2fe; color:#4f46e5; }
+    .btn-indigo:hover { background:#e0e7ff; border-color:#a5b4fc; }
+    .btn-green { background:linear-gradient(135deg,#059669,#10b981); color:#fff; box-shadow:0 2px 10px rgba(16,185,129,.3); }
+    .btn-green:hover { transform:translateY(-1px); box-shadow:0 4px 16px rgba(16,185,129,.4); }
+    .badge { display:inline-flex; align-items:center; border-radius:6px; font-size:10px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; padding:2px 8px; }
+    .b-blue   { background:#e0f2fe; color:#0369a1; border:1px solid #bae6fd; }
+    .b-green  { background:#dcfce7; color:#15803d; border:1px solid #bbf7d0; }
+    .b-red    { background:#fee2e2; color:#dc2626; border:1px solid #fecaca; }
+    .b-amber  { background:#fef9c3; color:#b45309; border:1px solid #fde68a; }
+    .b-indigo { background:#eef2ff; color:#4338ca; border:1px solid #c7d2fe; }
+    .b-purple { background:#faf5ff; color:#7e22ce; border:1px solid #e9d5ff; }
+    .b-gray   { background:#f1f5f9; color:#64748b; border:1px solid #e2e8f0; }
+    .b-teal   { background:#f0fdfa; color:#0f766e; border:1px solid #99f6e4; }
+    .tbl th { font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:#94a3b8; padding:11px 16px; background:#f8fafc; }
+    .tbl td { padding:13px 16px; vertical-align:top; font-size:12.5px; border-top:1px solid #f1f5f9; }
+    .tbl tr:hover td { background:#f8fafc; }
+    .cbar-wrap { width:60px; height:5px; background:#e2e8f0; border-radius:999px; overflow:hidden; margin-top:4px; }
+    .cbar { height:100%; border-radius:999px; transition:width .5s ease; }
+    .model-chip { display:flex; align-items:flex-start; gap:10px; padding:10px 14px; border-radius:10px; background:#f8fafc; border:1px solid #e2e8f0; transition:border-color .15s; }
+    .model-chip:hover { border-color:#94a3b8; }
+    .model-dot { width:8px; height:8px; border-radius:50%; background:#10b981; flex-shrink:0; margin-top:4px; box-shadow:0 0 0 3px rgba(16,185,129,.2); }
+    .stat-pill { background:rgba(255,255,255,.15); border-radius:12px; padding:12px 20px; text-align:center; min-width:88px; }
+    .spin { width:14px; height:14px; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:sp .6s linear infinite; display:inline-block; }
+    .spin-blue { border:2px solid #bae6fd; border-top-color:#0284c7; border-radius:50%; animation:sp .6s linear infinite; width:14px; height:14px; display:inline-block; }
+    @keyframes sp { to { transform:rotate(360deg); } }
+    .scan-wrap { height:3px; overflow:hidden; border-radius:999px; background:#e2e8f0; }
+    .scan-bar { height:100%; width:40%; background:linear-gradient(90deg,transparent,#0ea5e9,transparent); animation:scan 1.2s ease-in-out infinite; }
+    @keyframes scan { 0%{transform:translateX(-100%)} 100%{transform:translateX(350%)} }
+    .sec-label { font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:#94a3b8; }
+    .reasoning { margin-top:8px; padding:9px 12px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px; font-size:11px; line-height:1.6; color:#334155; }
+    .pulse { width:8px; height:8px; border-radius:50%; background:#10b981; animation:pg 2s infinite; }
+    @keyframes pg { 0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,.5)} 50%{box-shadow:0 0 0 6px rgba(16,185,129,0)} }
+    ::-webkit-scrollbar { width:5px; height:5px; }
+    ::-webkit-scrollbar-track { background:#f1f5f9; }
+    ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:999px; }
   </style>
 </head>
 <body>
-  <div class="bg-mesh"></div>
-  <div class="grid-overlay"></div>
-  <div id="particles"></div>
 
-  <div class="relative z-10 min-h-screen">
+  <!-- TOP NAVBAR -->
+  <div class="topbar px-6 py-4">
+    <div class="max-w-screen-xl mx-auto flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-lg">&#128269;</div>
+        <div>
+          <div class="text-white font-bold text-base leading-tight" style="font-family:'Plus Jakarta Sans',sans-serif">Doc Drift</div>
+          <div class="text-sky-300 text-xs">AI Documentation Guardian</div>
+        </div>
+      </div>
+      <div class="hidden md:flex items-center gap-3">
+        <div class="stat-pill"><div class="text-white font-bold text-lg leading-none" id="statIssues">&#8212;</div><div class="text-sky-200 text-[10px] mt-1 uppercase tracking-wider">Issues</div></div>
+        <div class="stat-pill"><div class="text-white font-bold text-lg leading-none" id="statSentences">&#8212;</div><div class="text-sky-200 text-[10px] mt-1 uppercase tracking-wider">Sentences</div></div>
+        <div class="stat-pill"><div class="text-white font-bold text-lg leading-none" id="statFixes">&#8212;</div><div class="text-sky-200 text-[10px] mt-1 uppercase tracking-wider">Fixes</div></div>
+      </div>
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1.5 text-sky-300 text-xs mr-2"><div class="pulse"></div><span id="engineStatus">Engine Live</span></div>
+        <button id="loadSampleBtn" class="btn btn-outline text-xs !px-3 !py-2">&#128194; Sample</button>
+        <button id="runBenchmarkBtn" class="btn btn-indigo text-xs !px-3 !py-2">&#128202; Benchmark</button>
+        <button id="analyzeBtn" class="btn btn-blue text-xs !px-4 !py-2">
+          <span class="spin hidden" id="analyzeSpinner"></span>&#9889; Analyze
+        </button>
+      </div>
+    </div>
+  </div>
 
-    <!-- NAVBAR -->
-    <nav class="sticky top-0 z-50 glass border-b border-white/5 px-6 py-3.5">
-      <div class="max-w-screen-xl mx-auto flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center text-base shadow-lg shadow-sky-500/30">🔍</div>
-          <div>
-            <span class="font-bold text-white text-sm tracking-tight" style="font-family:'Plus Jakarta Sans',sans-serif">Doc Drift</span>
-            <span class="ml-2 badge badge-behavioral" style="font-size:9px">AI Guardian</span>
-          </div>
+  <!-- PAGE -->
+  <div class="max-w-screen-xl mx-auto px-6 py-6 space-y-5">
+
+    <!-- Hero -->
+    <div class="card px-6 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+      <div>
+        <h1 class="text-lg font-bold text-slate-800" style="font-family:'Plus Jakarta Sans',sans-serif">Automated Documentation Drift Detection</h1>
+        <p class="text-slate-500 text-sm mt-0.5">Detects stale sentences when code changes — exact file:line, confidence scores &amp; 1-click AI repair.</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <span class="badge b-blue">AST Parser</span>
+        <span class="badge b-teal">Semantic Embeddings</span>
+        <span class="badge b-indigo">Behavioral AI</span>
+        <span class="badge b-green">1-Click Fix</span>
+      </div>
+    </div>
+
+    <!-- GitHub URL -->
+    <div class="card p-5">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-base">&#128025;</span>
+        <span class="font-semibold text-slate-700 text-sm">GitHub Direct Analysis</span>
+        <span class="badge b-blue ml-1">Live PR Fetch</span>
+      </div>
+      <div class="flex flex-col md:flex-row gap-3">
+        <div class="relative flex-1">
+          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-mono pointer-events-none">https://</span>
+          <input id="githubUrlInput" type="text" placeholder="github.com/owner/repo/pull/123  or  owner/repo#123" class="field field-mono pl-16">
         </div>
-        <div class="hidden md:flex items-center gap-5">
-          <div class="flex items-center gap-2 text-xs text-gray-400">
-            <div class="pulse-dot"></div>
-            <span id="engineStatus">Engine Live</span>
-          </div>
-          <div class="h-4 w-px bg-white/10"></div>
-          <div class="text-xs text-gray-500">🤖 Local LLM · No Cloud APIs</div>
-          <div class="h-4 w-px bg-white/10"></div>
-          <div class="text-xs text-gray-500">⚡ AST + Semantic + Behavioral</div>
-        </div>
+        <button id="analyzeGithubBtn" class="btn btn-blue whitespace-nowrap">
+          <span class="spin hidden" id="githubSpinner"></span>
+          <span id="githubBtnText">&#128640; Fetch &amp; Analyze</span>
+        </button>
+      </div>
+      <div id="githubStatus" class="hidden mt-3 scan-wrap"><div class="scan-bar"></div></div>
+      <div id="githubMsg" class="hidden mt-2 text-xs text-sky-600 flex items-center gap-2">
+        <span class="spin-blue"></span> Fetching PR diff and documentation from GitHub...
+      </div>
+    </div>
+
+    <!-- Benchmark -->
+    <div id="benchmarkBanner" class="hidden card p-5">
+      <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
-          <button id="loadSampleBtn" class="btn-secondary text-xs rounded-lg px-3 py-1.5">📂 Sample</button>
-          <button id="runBenchmarkBtn" class="btn-ghost text-xs rounded-lg px-3 py-1.5">📊 Benchmark</button>
-          <button id="analyzeBtn" class="btn-primary text-xs rounded-xl px-4 py-1.5 flex items-center gap-2">
-            <span class="spinner hidden" id="analyzeSpinner"></span>⚡ Analyze
-          </button>
+          <span class="text-base">&#128202;</span>
+          <span class="font-semibold text-slate-700 text-sm">Historical Open-Source Benchmark</span>
+          <span class="badge b-green">100% Accuracy</span>
+        </div>
+        <button onclick="document.getElementById('benchmarkBanner').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center">&#x2715;</button>
+      </div>
+      <div id="benchmarkContent" class="text-sm text-slate-500">Loading...</div>
+    </div>
+
+    <!-- 3-col workspace -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+      <!-- Diff -->
+      <div class="card overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+          <div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-sky-500"></div><span class="sec-label">PR Diff</span></div>
+          <span class="badge b-blue" style="font-size:9px">AST Parser</span>
+        </div>
+        <div class="p-4 space-y-3">
+          <textarea id="diffInput" rows="12" class="field field-code field-diff" placeholder="Paste unified git diff..."></textarea>
+          <div class="card-inset p-3">
+            <div class="sec-label mb-2">Detected Changes</div>
+            <div id="symbolList" class="text-xs text-slate-400 italic space-y-1">Run analysis to see symbol changes...</div>
+          </div>
         </div>
       </div>
-    </nav>
 
-    <!-- MAIN -->
-    <div class="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
-
-      <!-- Hero strip -->
-      <div class="reveal glass-bright rounded-2xl px-6 py-5 glow-brand">
-        <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div>
-            <h1 class="text-xl font-extrabold text-white tracking-tight" style="font-family:'Plus Jakarta Sans',sans-serif">Automated Documentation Drift Detection</h1>
-            <p class="text-sm text-gray-400 mt-1 max-w-xl">Catches stale sentences in your docs when code changes. Exact file:line with confidence scores &amp; 1-click AI repairs.</p>
-          </div>
-          <div class="flex items-center gap-3 flex-shrink-0">
-            <div class="stat-card"><div class="text-xl font-bold text-sky-400" id="statIssues">—</div><div class="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wider">Issues</div></div>
-            <div class="stat-card"><div class="text-xl font-bold text-indigo-400" id="statSentences">—</div><div class="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wider">Sentences</div></div>
-            <div class="stat-card"><div class="text-xl font-bold text-emerald-400" id="statFixes">—</div><div class="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wider">Fixes</div></div>
+      <!-- Doc -->
+      <div class="card overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+          <div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-indigo-500"></div><span class="sec-label">Documentation</span></div>
+          <input id="docNameInput" type="text" value="cli_reference.md" class="field field-mono !w-36 !px-2 !py-1 !rounded-lg" style="font-size:11px">
+        </div>
+        <div class="p-4 space-y-3">
+          <textarea id="docInput" rows="12" class="field field-code" placeholder="Paste Markdown / RST doc..."></textarea>
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-slate-400"><span id="docStats">0</span> sentences indexed</span>
+            <button id="applyFixBtn" class="hidden btn btn-green text-xs" style="padding:6px 14px;font-size:12px">&#x1FA84; 1-Click Fix</button>
           </div>
         </div>
       </div>
 
-      <!-- GitHub URL bar -->
-      <div class="reveal glass-bright rounded-2xl p-5" style="animation-delay:0.05s">
-        <div class="flex items-center gap-2 mb-3">
-          <span class="text-sm font-semibold text-white" style="font-family:'Plus Jakarta Sans',sans-serif">🐙 GitHub Direct Analysis</span>
-          <span class="badge badge-flag">Live PR Fetch</span>
+      <!-- Ollama -->
+      <div class="card overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+          <div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-emerald-500"></div><span class="sec-label">Local Ollama Models</span></div>
+          <span id="ollamaStatus" class="badge b-gray">Checking...</span>
         </div>
-        <div class="flex flex-col md:flex-row gap-3">
-          <div class="relative flex-1">
-            <div class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs font-mono select-none">https://</div>
-            <input id="githubUrlInput" type="text" placeholder="github.com/owner/repo/pull/123  or  owner/repo#123" class="input-field w-full rounded-xl px-4 py-3 pl-16 text-sm font-mono">
-          </div>
-          <button id="analyzeGithubBtn" class="btn-primary rounded-xl px-5 py-3 text-sm flex items-center justify-center gap-2 whitespace-nowrap">
-            <span class="spinner hidden" id="githubSpinner"></span>
-            <span id="githubBtnText">🚀 Fetch &amp; Analyze</span>
-          </button>
-        </div>
-        <div id="githubStatus" class="hidden mt-3 overflow-hidden rounded-lg" style="height:3px"><div class="scan-line"></div></div>
-        <div id="githubMsg" class="hidden mt-2 text-xs text-sky-400 flex items-center gap-2"><span class="animate-pulse">⏳</span> Fetching PR diff and documentation from GitHub...</div>
-      </div>
-
-      <!-- Benchmark Banner -->
-      <div id="benchmarkBanner" class="hidden reveal glass rounded-2xl p-5 border border-indigo-500/20" style="animation-delay:0.1s">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="text-sm font-semibold text-white flex items-center gap-2" style="font-family:'Plus Jakarta Sans',sans-serif">
-            📊 Historical Open-Source Benchmark <span class="badge badge-clean ml-2">100% Acc</span>
-          </h3>
-          <button onclick="document.getElementById('benchmarkBanner').classList.add('hidden')" class="text-gray-500 hover:text-white text-sm w-7 h-7 flex items-center justify-center hover:bg-white/5 rounded-full">✕</button>
-        </div>
-        <div id="benchmarkContent"><div class="shimmer h-20 w-full"></div></div>
-      </div>
-
-      <!-- Workspace -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 reveal" style="animation-delay:0.1s">
-        <!-- Diff Panel -->
-        <div class="glass rounded-2xl overflow-hidden">
-          <div class="flex items-center justify-between px-5 py-3.5 border-b border-white/5">
-            <div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-sky-400"></div><span class="text-xs font-semibold uppercase tracking-widest text-gray-400">Pull Request Diff</span></div>
-            <span class="badge badge-flag" style="font-size:9px">AST Parser</span>
-          </div>
-          <div class="p-4 space-y-3">
-            <textarea id="diffInput" rows="14" class="code-area diff-area w-full rounded-xl p-4" placeholder="Paste unified git diff or use GitHub URL above..."></textarea>
-            <div class="rounded-xl border border-white/5 bg-black/40 p-4">
-              <div class="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-3">Detected Symbol Changes</div>
-              <div id="symbolList" class="text-xs text-gray-500 italic space-y-1">Run analysis to detect code symbol changes...</div>
+        <div class="p-4 space-y-3 overflow-y-auto" style="max-height:420px">
+          <div id="ollamaList" class="space-y-2"><div class="text-xs text-slate-400 italic">Loading...</div></div>
+          <div class="card-inset p-3 mt-3">
+            <div class="sec-label mb-2">Inference Stack</div>
+            <div class="space-y-1 text-xs text-slate-500">
+              <div>&#128279; <span class="font-mono text-slate-700">localhost:11434</span></div>
+              <div>&#129504; sentence-transformers/MiniLM-L6</div>
+              <div>&#128683; <span class="text-red-500 font-medium">No Cloud APIs</span></div>
             </div>
           </div>
         </div>
-        <!-- Doc Panel -->
-        <div class="glass rounded-2xl overflow-hidden">
-          <div class="flex items-center justify-between px-5 py-3.5 border-b border-white/5">
-            <div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-indigo-400"></div><span class="text-xs font-semibold uppercase tracking-widest text-gray-400">Documentation</span></div>
-            <input id="docNameInput" type="text" value="cli_reference.md" class="input-field text-[11px] font-mono rounded-lg px-2 py-1 w-36 text-gray-300">
-          </div>
-          <div class="p-4 space-y-3">
-            <textarea id="docInput" rows="14" class="code-area w-full rounded-xl p-4" placeholder="Paste Markdown / RST documentation here..."></textarea>
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <span class="text-[10px] text-gray-500 uppercase tracking-widest">Indexed:</span>
-                <span class="text-xs font-mono text-sky-400" id="docStats">0 sentences</span>
+      </div>
+    </div>
+
+    <!-- Findings -->
+    <div class="card overflow-hidden">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+        <div class="flex items-center gap-2">
+          <div class="w-2.5 h-2.5 rounded-full bg-rose-500"></div>
+          <span class="font-bold text-slate-700 text-sm" style="font-family:'Plus Jakarta Sans',sans-serif">Detection Findings</span>
+        </div>
+        <span id="findingsBadge" class="badge b-gray">Awaiting analysis</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full tbl">
+          <thead><tr>
+            <th class="text-left">Location</th>
+            <th class="text-left">Stale Sentence</th>
+            <th class="text-left">Change</th>
+            <th class="text-left">Confidence</th>
+            <th class="text-left">Repair</th>
+          </tr></thead>
+          <tbody id="findingsBody">
+            <tr><td colspan="5" class="py-12 text-center text-slate-400">
+              <div class="flex flex-col items-center gap-2">
+                <div class="text-3xl">&#128300;</div>
+                <div>Paste a GitHub PR URL or load the sample diff to begin.</div>
               </div>
-              <button id="applyFixBtn" class="hidden btn-success text-xs rounded-lg px-3 py-1.5 flex items-center gap-1.5">🪄 1-Click Fix</button>
-            </div>
-          </div>
-        </div>
+            </td></tr>
+          </tbody>
+        </table>
       </div>
+    </div>
 
-      <!-- Findings -->
-      <div class="glass rounded-2xl overflow-hidden reveal" style="animation-delay:0.15s">
-        <div class="flex items-center justify-between px-6 py-4 border-b border-white/5">
-          <div class="flex items-center gap-3">
-            <div class="w-2.5 h-2.5 rounded-full bg-rose-400"></div>
-            <span class="text-xs font-bold text-white uppercase tracking-widest" style="font-family:'Plus Jakarta Sans',sans-serif">Drift Findings</span>
-          </div>
-          <span id="findingsBadge" class="badge badge-neutral">Awaiting analysis</span>
+    <!-- PR Comment -->
+    <div class="card overflow-hidden">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+        <div class="flex items-center gap-2">
+          <span class="text-base">&#128172;</span>
+          <span class="sec-label">Generated GitHub PR Comment</span>
         </div>
-        <div class="overflow-x-auto">
-          <table class="w-full findings-table">
-            <thead><tr class="border-b border-white/5">
-              <th>Location</th><th>Stale Sentence</th><th>Change</th><th>Confidence</th><th>Repair</th>
-            </tr></thead>
-            <tbody id="findingsBody">
-              <tr><td colspan="5" class="py-12 text-center">
-                <div class="flex flex-col items-center gap-3 text-gray-600">
-                  <div class="text-3xl">🔬</div>
-                  <div class="text-sm">Paste a GitHub PR URL or load a sample diff to begin analysis.</div>
-                </div>
-              </td></tr>
-            </tbody>
-          </table>
-        </div>
+        <button id="copyCommentBtn" class="btn btn-outline" style="font-size:12px;padding:6px 14px">&#128203; Copy Markdown</button>
       </div>
-
-      <!-- PR Comment -->
-      <div class="glass rounded-2xl overflow-hidden reveal" style="animation-delay:0.2s">
-        <div class="flex items-center justify-between px-6 py-4 border-b border-white/5">
-          <div class="flex items-center gap-2"><span>💬</span><span class="text-xs font-semibold uppercase tracking-widest text-gray-400">Generated PR Comment</span></div>
-          <button id="copyCommentBtn" class="btn-secondary text-xs rounded-lg px-3 py-1.5 flex items-center gap-1.5">📋 Copy Markdown</button>
-        </div>
-        <div class="p-5"><pre id="commentPreview" class="code-area rounded-xl p-5 text-xs text-gray-400 overflow-x-auto whitespace-pre-wrap min-h-16">Awaiting analysis...</pre></div>
+      <div class="p-5">
+        <pre id="commentPreview" class="field field-code p-4 text-slate-600 overflow-x-auto whitespace-pre-wrap" style="min-height:48px">Awaiting analysis...</pre>
       </div>
+    </div>
 
-      <!-- Footer -->
-      <footer class="text-center py-6 text-xs text-gray-700 space-y-1">
-        <div>Doc Drift Detector · Built for Hacktoberfest 2026 · Hack Day Sonipat</div>
-        <div class="flex items-center justify-center gap-4 text-gray-800">
-          <span>100% Local Inference</span><span>·</span><span>Zero Cloud APIs</span><span>·</span><span>AST + Semantic + Behavioral</span>
-        </div>
-      </footer>
+    <!-- Footer -->
+    <div class="text-center text-xs text-slate-400 py-4">
+      Doc Drift Detector &nbsp;&#183;&nbsp; Hacktoberfest 2026 &nbsp;&#183;&nbsp; Hack Day Sonipat &nbsp;&#183;&nbsp; 100% Local &nbsp;&#183;&nbsp; Zero Cloud APIs
     </div>
   </div>
 
   <script>
-    // Particles
-    (function() {
-      const c = document.getElementById('particles');
-      const colors = ['#38bdf8','#818cf8','#34d399','#7dd3fc'];
-      for (let i = 0; i < 18; i++) {
-        const p = document.createElement('div');
-        p.className = 'particle';
-        const sz = Math.random() * 3 + 1;
-        const dur = Math.random() * 18 + 12;
-        const delay = Math.random() * 16;
-        p.style.cssText = `width:${sz}px;height:${sz}px;left:${Math.random()*100}vw;bottom:0;background:${colors[Math.floor(Math.random()*colors.length)]};opacity:${Math.random()*0.4+0.1};animation-duration:${dur}s;animation-delay:${delay}s;`;
-        c.appendChild(p);
-      }
-    })();
-
     let currentAnalysis = null;
+
+    async function loadOllamaModels() {
+      try {
+        const res = await fetch('/api/ollama-models');
+        const data = await res.json();
+        const st = document.getElementById('ollamaStatus');
+        const lst = document.getElementById('ollamaList');
+        if (data.status === 'offline') {
+          st.className = 'badge b-red'; st.textContent = 'Offline';
+          lst.innerHTML = '<div class="text-xs text-red-500">Ollama not reachable at localhost:11434</div>';
+          return;
+        }
+        st.className = 'badge b-green'; st.textContent = data.count + ' Models';
+        lst.innerHTML = data.models.map(m => {
+          const caps = [];
+          if (m.capabilities.includes('thinking')) caps.push('<span class="badge b-purple" style="font-size:9px">&#129504; Think</span>');
+          if (m.capabilities.includes('vision'))   caps.push('<span class="badge b-amber" style="font-size:9px">&#128065; Vision</span>');
+          if (m.capabilities.includes('tools'))    caps.push('<span class="badge b-teal" style="font-size:9px">&#128295; Tools</span>');
+          const [name, tag] = m.name.split(':');
+          return `<div class="model-chip">
+            <div class="model-dot"></div>
+            <div class="flex-1 min-w-0">
+              <div class="font-mono text-xs font-semibold text-slate-700 truncate">${name}<span class="text-slate-400 font-normal">:${tag||'latest'}</span></div>
+              <div class="text-[10px] text-slate-400 mt-0.5">${m.params} &middot; ${m.quant} &middot; ${m.size_gb}GB</div>
+              <div class="mt-1 flex flex-wrap gap-1">${caps.join('')}</div>
+            </div>
+          </div>`;
+        }).join('');
+      } catch(e) {
+        document.getElementById('ollamaStatus').className = 'badge b-red';
+        document.getElementById('ollamaStatus').textContent = 'Error';
+      }
+    }
 
     function setLoading(btnId, spinnerId, on) {
       const btn = document.getElementById(btnId);
       const sp = document.getElementById(spinnerId);
       if (!btn || !sp) return;
       sp.classList.toggle('hidden', !on);
-      btn.disabled = on;
-      btn.style.opacity = on ? '0.75' : '';
+      btn.disabled = on; btn.style.opacity = on ? '0.7' : '';
+    }
+
+    function confStyle(v) {
+      if (v >= 0.9) return '#16a34a';
+      if (v >= 0.7) return '#d97706';
+      return '#ef4444';
+    }
+
+    function catBadge(cat) {
+      const m = {behavioral:'b-indigo',config:'b-amber',signature:'b-red',flag:'b-blue',semantic:'b-teal'};
+      return `<span class="badge ${m[cat]||'b-gray'}">${cat.toUpperCase()}</span>`;
     }
 
     function updateStats(data) {
-      document.getElementById('statIssues').textContent = data.total_issues ?? '—';
-      document.getElementById('statSentences').textContent = data.total_sentences ?? '—';
-      document.getElementById('statFixes').textContent = (data.suggested_fixes || []).length;
-      document.getElementById('docStats').textContent = (data.total_sentences || 0) + ' sentences';
-    }
-
-    function confColor(v) {
-      if (v >= 0.9) return ['#34d399','rgba(52,211,153,0.15)'];
-      if (v >= 0.7) return ['#fbbf24','rgba(251,191,36,0.12)'];
-      return ['#f87171','rgba(248,113,113,0.12)'];
-    }
-
-    function categoryBadge(cat) {
-      const cls = {behavioral:'badge-behavioral',config:'badge-config',signature:'badge-signature',flag:'badge-flag',semantic:'badge-semantic'}[cat.toLowerCase()] || 'badge-flag';
-      return `<span class="badge ${cls}">${cat.toUpperCase()}</span>`;
+      document.getElementById('statIssues').textContent    = data.total_issues ?? '&#8212;';
+      document.getElementById('statSentences').textContent = data.total_sentences ?? '&#8212;';
+      document.getElementById('statFixes').textContent     = (data.suggested_fixes||[]).length;
+      document.getElementById('docStats').textContent      = data.total_sentences ?? 0;
     }
 
     async function loadSamples() {
       const res = await fetch('/api/samples');
-      const data = await res.json();
-      document.getElementById('diffInput').value = data.diff;
-      document.getElementById('docInput').value = data.doc;
-      document.getElementById('docNameInput').value = data.doc_name;
+      const d = await res.json();
+      document.getElementById('diffInput').value    = d.diff;
+      document.getElementById('docInput').value     = d.doc;
+      document.getElementById('docNameInput').value = d.doc_name;
     }
 
     async function runAnalysis() {
@@ -556,12 +549,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       document.getElementById('engineStatus').textContent = 'Analyzing...';
       try {
         const res = await fetch('/api/analyze', {
-          method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({diff: document.getElementById('diffInput').value, doc: document.getElementById('docInput').value, doc_name: document.getElementById('docNameInput').value})
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({diff:document.getElementById('diffInput').value, doc:document.getElementById('docInput').value, doc_name:document.getElementById('docNameInput').value})
         });
         const data = await res.json();
-        currentAnalysis = data;
-        renderAnalysis(data);
+        currentAnalysis = data; renderAnalysis(data);
       } finally {
         setLoading('analyzeBtn','analyzeSpinner',false);
         document.getElementById('engineStatus').textContent = 'Engine Live';
@@ -572,26 +564,21 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       const url = document.getElementById('githubUrlInput').value.trim();
       if (!url) { alert('Enter a GitHub URL first.'); return; }
       setLoading('analyzeGithubBtn','githubSpinner',true);
-      document.getElementById('githubBtnText').textContent = 'Fetching…';
+      document.getElementById('githubBtnText').textContent = 'Fetching...';
       document.getElementById('githubStatus').classList.remove('hidden');
       document.getElementById('githubMsg').classList.remove('hidden');
       try {
-        const res = await fetch('/api/analyze-github', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({url})
-        });
+        const res = await fetch('/api/analyze-github', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})});
         const data = await res.json();
-        if (data.error) { alert('Error: ' + data.error); return; }
-        document.getElementById('diffInput').value = data.diff_text || '';
-        document.getElementById('docInput').value = data.doc_text || '';
-        document.getElementById('docNameInput').value = data.doc_name || 'README.md';
-        currentAnalysis = data;
-        renderAnalysis(data);
-      } catch(e) {
-        alert('Network error: ' + e);
-      } finally {
+        if (data.error) { alert('Error: '+data.error); return; }
+        document.getElementById('diffInput').value    = data.diff_text||'';
+        document.getElementById('docInput').value     = data.doc_text||'';
+        document.getElementById('docNameInput').value = data.doc_name||'README.md';
+        currentAnalysis = data; renderAnalysis(data);
+      } catch(e) { alert('Network error: '+e); }
+      finally {
         setLoading('analyzeGithubBtn','githubSpinner',false);
-        document.getElementById('githubBtnText').textContent = '🚀 Fetch & Analyze';
+        document.getElementById('githubBtnText').textContent = 'Fetch & Analyze';
         document.getElementById('githubStatus').classList.add('hidden');
         document.getElementById('githubMsg').classList.add('hidden');
       }
@@ -599,74 +586,71 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     function renderAnalysis(data) {
       updateStats(data);
-
       const sl = document.getElementById('symbolList');
       if (data.parsed_changes && data.parsed_changes.length > 0) {
-        sl.innerHTML = data.parsed_changes.map(c => `
-          <div class="flex items-baseline gap-2 py-0.5">
-            <span class="badge badge-flag" style="font-size:9px">${c.type}</span>
-            <span class="font-mono text-rose-400 line-through opacity-70">${c.old}</span>
-            <span class="text-gray-600">→</span>
-            <span class="font-mono text-emerald-400">${c.new || 'removed'}</span>
-            <span class="text-gray-600 text-[10px]">${c.file}:${c.line}</span>
+        sl.innerHTML = data.parsed_changes.map(c=>`
+          <div class="flex flex-wrap items-baseline gap-1.5">
+            <span class="badge b-blue" style="font-size:9px">${c.type}</span>
+            <span class="font-mono text-red-500 line-through text-[11px]">${c.old}</span>
+            <span class="text-slate-400">&rarr;</span>
+            <span class="font-mono text-green-600 text-[11px]">${c.new||'removed'}</span>
+            <span class="text-slate-400 text-[10px]">${c.file}:${c.line}</span>
           </div>`).join('');
       } else {
-        sl.innerHTML = '<span class="text-gray-600">No symbol changes detected.</span>';
+        sl.innerHTML = '<span class="text-slate-400">No symbol changes detected.</span>';
       }
-
       const badge = document.getElementById('findingsBadge');
-      const issues = data.total_issues || 0;
-      if (issues > 0) { badge.className = 'badge badge-issues'; badge.textContent = issues + ' Issue' + (issues !== 1 ? 's' : ''); }
-      else { badge.className = 'badge badge-clean'; badge.textContent = 'All Clean ✓'; }
+      const n = data.total_issues||0;
+      badge.className = n>0?'badge b-red':'badge b-green';
+      badge.textContent = n>0 ? `${n} Issue${n!==1?'s':''}` : 'All Clean \u2713';
 
       const tbody = document.getElementById('findingsBody');
-      if (data.findings && data.findings.length > 0) {
-        tbody.innerHTML = data.findings.map(f => {
-          const fix = (data.suggested_fixes || []).find(x => x.doc_line === f.doc_line);
-          const fixHtml = fix ? `<span class="font-mono text-emerald-400 text-[11px]">${fix.suggested_line}</span>` : '<span class="text-gray-600 text-[11px]">Manual review</span>';
-          const [clr] = confColor(f.confidence);
-          const pct = Math.round(f.confidence * 100);
-          const cat = (f.drift_category || 'flag').toLowerCase();
-          const reasoning = f.reasoning ? `<div class="reasoning-box"><span style="color:#38bdf8;font-weight:600">🧠 ${f.verified_by_model || 'Local LLM'}${f.latency_ms ? ' · ' + f.latency_ms + 'ms' : ''}</span><br>${f.reasoning}</div>` : '';
+      if (data.findings && data.findings.length>0) {
+        tbody.innerHTML = data.findings.map(f=>{
+          const fix = (data.suggested_fixes||[]).find(x=>x.doc_line===f.doc_line);
+          const fixHtml = fix ? `<span class="font-mono text-green-700 text-xs">${fix.suggested_line}</span>` : '<span class="text-slate-400 text-xs">Manual review</span>';
+          const pct = Math.round(f.confidence*100);
+          const clr = confStyle(f.confidence);
+          const cat = (f.drift_category||'flag').toLowerCase();
+          const reasoning = f.reasoning ? `<div class="reasoning"><span style="color:#0369a1;font-weight:600">&#129504; ${f.verified_by_model||'Local LLM'}${f.latency_ms?' &middot; '+f.latency_ms+'ms':''}</span><br>${f.reasoning}</div>` : '';
           return `<tr>
-            <td><div class="font-mono text-sky-400 text-[11px]">${f.doc_file}:${f.doc_line}</div><div class="mt-1.5">${categoryBadge(cat)}</div></td>
-            <td><div class="font-mono text-gray-200 text-[11px] leading-relaxed">${f.stale_sentence}</div>${reasoning}</td>
-            <td><div class="font-mono text-[11px]"><span class="text-rose-400">${f.changed_symbol}</span> <span class="text-gray-600">→</span> <span class="text-emerald-400">${f.new_symbol || 'removed'}</span></div></td>
-            <td><div class="flex flex-col gap-1.5"><span class="font-mono text-xs font-bold" style="color:${clr}">${pct}%</span><div class="conf-bar-wrap"><div class="conf-bar" style="width:${pct}%;background:${clr}"></div></div></div></td>
-            <td>${fixHtml}</td>
+            <td><span class="font-mono text-sky-600 text-xs">${f.doc_file}:${f.doc_line}</span><div class="mt-1.5">${catBadge(cat)}</div></td>
+            <td class="max-w-sm"><span class="font-mono text-slate-700 text-xs">${f.stale_sentence}</span>${reasoning}</td>
+            <td><span class="font-mono text-red-500 text-xs">${f.changed_symbol}</span> <span class="text-slate-400">&rarr;</span> <span class="font-mono text-green-600 text-xs">${f.new_symbol||'removed'}</span></td>
+            <td><span class="font-mono font-bold text-xs" style="color:${clr}">${pct}%</span><div class="cbar-wrap"><div class="cbar" style="width:${pct}%;background:${clr}"></div></div></td>
+            <td class="max-w-xs">${fixHtml}</td>
           </tr>`;
         }).join('');
       } else {
-        tbody.innerHTML = `<tr><td colspan="5" class="py-12 text-center"><div class="flex flex-col items-center gap-2 text-emerald-500"><div class="text-3xl">✅</div><div class="text-sm font-semibold">All documentation is consistent with code changes.</div></div></td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" class="py-12 text-center"><div class="flex flex-col items-center gap-2 text-emerald-600"><div class="text-3xl">&#9989;</div><div class="font-semibold">All documentation is consistent with code changes.</div></div></td></tr>`;
       }
-
-      document.getElementById('commentPreview').textContent = data.markdown_pr_comment || '✅ No drift detected.';
+      document.getElementById('commentPreview').textContent = data.markdown_pr_comment||'No drift.';
       const fb = document.getElementById('applyFixBtn');
-      (data.suggested_fixes && data.suggested_fixes.length > 0) ? fb.classList.remove('hidden') : fb.classList.add('hidden');
+      (data.suggested_fixes&&data.suggested_fixes.length>0) ? fb.classList.remove('hidden') : fb.classList.add('hidden');
     }
 
     async function runBenchmark() {
       const banner = document.getElementById('benchmarkBanner');
       const content = document.getElementById('benchmarkContent');
       banner.classList.remove('hidden');
-      content.innerHTML = '<div class="shimmer h-24 w-full rounded-xl"></div>';
+      content.innerHTML = '<div class="text-slate-400">Evaluating against Click, Flask, Requests, Django...</div>';
       const res = await fetch('/api/benchmark');
       const data = await res.json();
       content.innerHTML = `
         <div class="grid grid-cols-3 gap-3 mb-4">
-          <div class="stat-card"><div class="text-lg font-bold text-emerald-400">${(data.accuracy*100).toFixed(0)}%</div><div class="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wider">Accuracy</div></div>
-          <div class="stat-card"><div class="text-lg font-bold text-sky-400">${(data.precision*100).toFixed(0)}%</div><div class="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wider">Precision</div></div>
-          <div class="stat-card"><div class="text-lg font-bold text-indigo-400">${(data.recall*100).toFixed(0)}%</div><div class="text-[10px] text-gray-500 mt-0.5 uppercase tracking-wider">Recall</div></div>
+          <div class="card-inset p-3 text-center"><div class="text-xl font-bold text-emerald-600">${(data.accuracy*100).toFixed(0)}%</div><div class="sec-label mt-1">Accuracy</div></div>
+          <div class="card-inset p-3 text-center"><div class="text-xl font-bold text-sky-600">${(data.precision*100).toFixed(0)}%</div><div class="sec-label mt-1">Precision</div></div>
+          <div class="card-inset p-3 text-center"><div class="text-xl font-bold text-indigo-600">${(data.recall*100).toFixed(0)}%</div><div class="sec-label mt-1">Recall</div></div>
         </div>
-        <div class="space-y-1">${data.cases.map(c=>`<div class="flex items-center justify-between py-1.5 border-b border-white/5 text-xs"><span class="text-gray-400">${c.repo}: <span class="text-gray-300">${c.description}</span></span><span class="${c.status.includes('PASS')?'badge badge-clean':'badge badge-issues'}">${c.status}</span></div>`).join('')}</div>`;
+        <div class="space-y-1">${data.cases.map(c=>`<div class="flex items-center justify-between py-1.5 border-b border-slate-100 text-sm"><span class="text-slate-500">${c.repo}: <span class="text-slate-700">${c.description}</span></span><span class="${c.status.includes('PASS')?'badge b-green':'badge b-red'}">${c.status}</span></div>`).join('')}</div>`;
     }
 
     function applyFixToDoc() {
-      if (!currentAnalysis || !currentAnalysis.suggested_fixes) return;
+      if (!currentAnalysis||!currentAnalysis.suggested_fixes) return;
       const lines = document.getElementById('docInput').value.split('\n');
       for (const fix of currentAnalysis.suggested_fixes) {
-        const idx = fix.doc_line - 1;
-        if (idx >= 0 && idx < lines.length) lines[idx] = fix.suggested_line;
+        const idx = fix.doc_line-1;
+        if (idx>=0&&idx<lines.length) lines[idx] = fix.suggested_line;
       }
       document.getElementById('docInput').value = lines.join('\n');
       runAnalysis();
@@ -680,12 +664,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     document.getElementById('copyCommentBtn').addEventListener('click', () => {
       navigator.clipboard.writeText(document.getElementById('commentPreview').textContent);
       const btn = document.getElementById('copyCommentBtn');
-      const orig = btn.textContent;
-      btn.textContent = '✓ Copied!';
-      setTimeout(() => btn.textContent = orig, 2000);
+      const orig = btn.innerHTML;
+      btn.innerHTML = '&#10003; Copied!';
+      setTimeout(()=>btn.innerHTML=orig, 2000);
     });
 
     loadSamples();
+    loadOllamaModels();
   </script>
 </body>
 </html>"""
