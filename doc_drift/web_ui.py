@@ -344,8 +344,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       </div>
       <div class="flex flex-col md:flex-row gap-3">
         <div class="relative flex-1">
-          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-mono pointer-events-none">https://</span>
-          <input id="githubUrlInput" type="text" placeholder="github.com/owner/repo/pull/123  or  owner/repo#123" class="field field-mono pl-16">
+          <input id="githubUrlInput" type="text" placeholder="https://github.com/owner/repo/pull/123  or  owner/repo#123" class="field field-mono px-4">
         </div>
         <button id="analyzeGithubBtn" class="btn btn-blue whitespace-nowrap">
           <span class="spin hidden" id="githubSpinner"></span>
