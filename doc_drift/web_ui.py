@@ -138,7 +138,7 @@ class DocDriftWebHandler(BaseHTTPRequestHandler):
     def _run_analysis_logic(self, diff_text: str, doc_text: str, doc_name: str) -> dict[str, Any]:
         changes = parse_diff(diff_text)
         sentences = _parse_markdown_sentences(doc_name, doc_text)
-        findings = find_drift(changes, sentences)
+        findings = find_drift(changes, sentences, enable_llm_check=True)
 
         # Generate in-memory fixes for the supplied doc text
         doc_lines = doc_text.splitlines()
@@ -159,6 +159,7 @@ class DocDriftWebHandler(BaseHTTPRequestHandler):
                     ))
 
         report = generate_json_report(findings, fixes)
+        report["total_sentences"] = len(sentences)
         report["markdown_pr_comment"] = generate_markdown_summary(findings, fixes)
         report["parsed_changes"] = [
             {
@@ -418,6 +419,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     function renderAnalysis(data) {
+      // 0. Update Document Sentence Stats
+      const statsEl = document.getElementById('docStats');
+      if (statsEl) {
+        statsEl.textContent = `${data.total_sentences || 0} sentences indexed`;
+      }
+
       // 1. Render Detected Symbols
       const symbolList = document.getElementById('symbolList');
       if (data.parsed_changes && data.parsed_changes.length > 0) {
@@ -442,14 +449,26 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           const fix = (data.suggested_fixes || []).find(x => x.doc_line === f.doc_line);
           const fixText = fix ? `<span class="text-emerald-400">${fix.suggested_line}</span>` : '<span class="text-gray-500">Manual review</span>';
           const confColor = f.confidence >= 0.9 ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800' : 'text-amber-400 bg-amber-950/60 border-amber-800';
+          const cat = (f.drift_category || 'flag').toUpperCase();
+          const reasoningBlock = f.reasoning ? `
+            <div class="mt-1.5 p-2 bg-black/50 rounded border border-sky-900/40 text-[11px] text-gray-300 font-sans">
+              <span class="text-sky-400 font-semibold">🧠 AI Logic (${f.verified_by_model || 'Local LLM'}${f.latency_ms ? ' • ' + f.latency_ms + 'ms' : ''}):</span>
+              ${f.reasoning}
+            </div>` : '';
           
           return `
             <tr class="hover:bg-gray-800/30">
-              <td class="py-3 px-3 text-sky-400">${f.doc_file}:${f.doc_line}</td>
-              <td class="py-3 px-3 text-gray-200 max-w-xs truncate">${f.stale_sentence}</td>
-              <td class="py-3 px-3 text-rose-300">${f.changed_symbol} → ${f.new_symbol || 'removed'}</td>
-              <td class="py-3 px-3"><span class="px-2 py-0.5 rounded border text-[11px] ${confColor}">${Math.round(f.confidence * 100)}%</span></td>
-              <td class="py-3 px-3 max-w-xs truncate">${fixText}</td>
+              <td class="py-3 px-3 text-sky-400 align-top">
+                <div>${f.doc_file}:${f.doc_line}</div>
+                <span class="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800 font-sans uppercase font-bold">${cat}</span>
+              </td>
+              <td class="py-3 px-3 text-gray-200 align-top max-w-sm">
+                <div class="font-mono">${f.stale_sentence}</div>
+                ${reasoningBlock}
+              </td>
+              <td class="py-3 px-3 text-rose-300 align-top font-mono">${f.changed_symbol} → ${f.new_symbol || 'removed'}</td>
+              <td class="py-3 px-3 align-top"><span class="px-2 py-0.5 rounded border text-[11px] ${confColor}">${Math.round(f.confidence * 100)}%</span></td>
+              <td class="py-3 px-3 align-top max-w-xs font-mono">${fixText}</td>
             </tr>
           `;
         }).join('');

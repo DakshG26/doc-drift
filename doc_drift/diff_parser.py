@@ -49,6 +49,12 @@ def parse_diff(diff_text: str) -> list[SymbolChange]:
         # 4. Global constants (UPPERCASE_CONFIG = val)
         changes.extend(_detect_constant_changes(filename, removed_lines, added_lines))
 
+        # 5. Return type modifications (def func(...) -> Type)
+        changes.extend(_detect_return_type_changes(filename, removed_lines, added_lines))
+
+        # 6. HTTP API routes (@app.get/post/put/delete)
+        changes.extend(_detect_route_changes(filename, removed_lines, added_lines))
+
     return changes
 
 
@@ -320,6 +326,84 @@ def _detect_constant_changes(
                 file=filename,
                 line=line,
                 context=f"Constant {k} updated from {old_val} to {new_val}",
+            ))
+
+    return changes
+
+
+def _detect_return_type_changes(
+    filename: str,
+    removed: list[tuple[int, str]],
+    added: list[tuple[int, str]],
+) -> list[SymbolChange]:
+    """Identify changes in function return type annotations."""
+    changes: list[SymbolChange] = []
+    ret_regex = re.compile(r'def\s+([a-zA-Z_]\w*)\s*\(.*?\)\s*->\s*([^:]+):')
+
+    old_rets: dict[str, tuple[str, int]] = {}
+    new_rets: dict[str, tuple[str, int]] = {}
+
+    for lineno, text in removed:
+        m = ret_regex.search(text)
+        if m:
+            old_rets[m.group(1)] = (m.group(2).strip(), lineno)
+
+    for lineno, text in added:
+        m = ret_regex.search(text)
+        if m:
+            new_rets[m.group(1)] = (m.group(2).strip(), lineno)
+
+    for func in set(old_rets.keys()) & set(new_rets.keys()):
+        old_type, _ = old_rets[func]
+        new_type, line = new_rets[func]
+        if old_type != new_type:
+            changes.append(SymbolChange(
+                change_type="return_type_changed",
+                old_symbol=f"{func}() -> {old_type}",
+                new_symbol=f"{func}() -> {new_type}",
+                file=filename,
+                line=line,
+                context=f"Function {func}() return type changed from {old_type} to {new_type}",
+            ))
+
+    return changes
+
+
+def _detect_route_changes(
+    filename: str,
+    removed: list[tuple[int, str]],
+    added: list[tuple[int, str]],
+) -> list[SymbolChange]:
+    """Identify changed HTTP API routes and methods (FastAPI / Flask decorators)."""
+    changes: list[SymbolChange] = []
+    route_regex = re.compile(r'@\w+\.(get|post|put|delete|patch)\(\s*["\']([^"\']+)["\']', re.IGNORECASE)
+
+    old_routes: dict[str, tuple[str, str, int]] = {}
+    new_routes: dict[str, tuple[str, str, int]] = {}
+
+    for lineno, text in removed:
+        m = route_regex.search(text)
+        if m:
+            method, path = m.group(1).upper(), m.group(2)
+            old_routes[path] = (method, path, lineno)
+
+    for lineno, text in added:
+        m = route_regex.search(text)
+        if m:
+            method, path = m.group(1).upper(), m.group(2)
+            new_routes[path] = (method, path, lineno)
+
+    for path in set(old_routes.keys()) & set(new_routes.keys()):
+        old_m, _, _ = old_routes[path]
+        new_m, _, line = new_routes[path]
+        if old_m != new_m:
+            changes.append(SymbolChange(
+                change_type="route_changed",
+                old_symbol=f"{old_m} {path}",
+                new_symbol=f"{new_m} {path}",
+                file=filename,
+                line=line,
+                context=f"HTTP endpoint {path} method changed from {old_m} to {new_m}",
             ))
 
     return changes

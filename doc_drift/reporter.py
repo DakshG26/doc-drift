@@ -39,6 +39,10 @@ def generate_json_report(
                 "change_type": f.change_type,
                 "match_method": f.match_method,
                 "explanation": f.explanation,
+                "drift_category": f.drift_category,
+                "reasoning": f.reasoning,
+                "verified_by_model": f.verified_by_model,
+                "latency_ms": f.latency_ms,
             }
             for f in findings
         ],
@@ -96,6 +100,23 @@ def generate_markdown_summary(
         for fx in fixes:
             lines.append(generate_github_suggestion_block(fx))
             lines.append("")
+
+    # Step-by-step AI Reasoning Chains
+    reasoning_findings = [f for f in findings if f.reasoning]
+    if reasoning_findings:
+        lines.extend([
+            "",
+            "<details>",
+            "<summary>🧠 Behavioral Drift & Local Model Verification Chains</summary>",
+            "",
+        ])
+        for f in reasoning_findings:
+            model_tag = f" `[{f.verified_by_model}]`" if f.verified_by_model else ""
+            lines.append(f"- **{f.doc_file}:{f.doc_line}** ({f.drift_category.upper()}){model_tag}: {f.reasoning}")
+        lines.extend([
+            "",
+            "</details>",
+        ])
 
     lines.extend([
         "",

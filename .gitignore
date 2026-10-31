@@ -9,6 +9,9 @@ dist/
 build/
 .venv/
 venv/
-testsprite_tests/tmp/
-testsprite_tests/tmp/config.json
 testsprite_tests/
+drift_report.jsontmp/
+testsprite_tests/
+drift_report.jsontmp/config.json
+testsprite_tests/
+drift_report.json
