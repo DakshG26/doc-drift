@@ -121,15 +121,27 @@ control/negative-check | 0        | 0      | PASS (True Negative)
 =================================================================
 ```
 
-### 5. Launch Interactive Visual Dashboard (`--ui`)
+### 5. Direct GitHub URL Analysis
 
-Start the interactive browser dashboard to test diffs and documentation side-by-side with confidence meters and 1-click AI fixes:
+Analyze any public GitHub pull request or repository directly from the CLI or Web UI:
+
+```bash
+# Analyze a specific pull request
+python -m doc_drift.github_action --url https://github.com/pallets/click/pull/2600
+
+# Or shorthand
+python -m doc_drift.github_action --url pallets/click#2600
+```
+
+### 6. Launch Interactive Visual Dashboard (`--ui`)
+
+Start the interactive browser dashboard to paste any GitHub URL or test diffs side-by-side with confidence meters and 1-click AI fixes:
 
 ```bash
 python -m doc_drift.github_action --ui
 ```
 
-Visit `http://localhost:8765` in your browser.
+Visit `http://localhost:8765` in your browser. You can paste any GitHub link in the top bar and click **"🚀 Fetch & Analyze GitHub URL"**.
 
 ---
 
