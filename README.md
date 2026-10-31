@@ -83,6 +83,44 @@ python -m doc_drift.github_action \
   --output drift_report.json
 ```
 
+### 3. 1-Click Auto-Repair (`--fix`)
+
+Automatically patch and correct outdated documentation files in place:
+
+```bash
+python -m doc_drift.github_action \
+  --diff-file examples/input_pr_diff.patch \
+  --docs-dir examples/docs \
+  --fix
+```
+
+### 4. Run the Open-Source Historical Benchmark Suite
+
+Evaluate the detection engine against curated historical commits from Click, Flask, Requests, and Django:
+
+```bash
+python -m doc_drift.benchmark
+```
+
+```
+=================================================================
+📊 DOC DRIFT DETECTOR — HISTORICAL BENCHMARK SUITE
+=================================================================
+Total Evaluated Cases: 5
+Accuracy:  100.0%
+Precision: 100.0% (False Alarm Resistance)
+Recall:    100.0% (Drift Catch Rate)
+-----------------------------------------------------------------
+Repository             | Expected | Found  | Status
+-----------------------------------------------------------------
+pallets/click          | 1        | 1      | PASS (True Positive)
+pallets/flask          | 1        | 1      | PASS (True Positive)
+psf/requests           | 1        | 1      | PASS (True Positive)
+django/django          | 1        | 1      | PASS (True Positive)
+control/negative-check | 0        | 0      | PASS (True Negative)
+=================================================================
+```
+
 ---
 
 ## 📊 Sample Output

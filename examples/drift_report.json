@@ -1,6 +1,7 @@
 {
   "drift_detected": true,
   "total_issues": 2,
+  "total_fixes_generated": 2,
   "summary": "Found 2 documentation drift issue(s).",
   "findings": [
     {
@@ -28,6 +29,24 @@
       "change_type": "default_changed",
       "match_method": "exact",
       "explanation": "Exact symbol 'default=30' detected in documentation."
+    }
+  ],
+  "suggested_fixes": [
+    {
+      "doc_file": "cli_reference.md",
+      "doc_line": 9,
+      "original_line": "- You can specify `--timeout` in seconds to terminate stalled worker jobs before failure.",
+      "suggested_line": "- You can specify `--deadline` in seconds to terminate stalled worker jobs before failure.",
+      "symbol_replaced": "--timeout",
+      "new_symbol": "--deadline"
+    },
+    {
+      "doc_file": "cli_reference.md",
+      "doc_line": 10,
+      "original_line": "- Default execution timeout is set to 30 seconds across all worker pools.",
+      "suggested_line": "- Default execution timeout is set to 60 seconds across all worker pools.",
+      "symbol_replaced": "default=30",
+      "new_symbol": "default=60"
     }
   ]
 }
