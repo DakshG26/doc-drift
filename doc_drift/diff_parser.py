@@ -206,6 +206,34 @@ def _detect_default_value_changes(
                 context=f"Default parameter {k} changed from {old_val} to {new_val}",
             ))
 
+    removed_keys = set(old_params.keys()) - set(new_params.keys())
+    added_keys = set(new_params.keys()) - set(old_params.keys())
+
+    if len(removed_keys) == 1 and len(added_keys) == 1:
+        old_k = next(iter(removed_keys))
+        new_k = next(iter(added_keys))
+        old_val, _ = old_params[old_k]
+        new_val, line = new_params[new_k]
+        changes.append(SymbolChange(
+            change_type="renamed",
+            old_symbol=f"{old_k}={old_val}",
+            new_symbol=f"{new_k}={new_val}",
+            file=filename,
+            line=line,
+            context=f"Parameter {old_k} renamed to {new_k}",
+        ))
+    else:
+        for old_k in removed_keys:
+            old_val, line = old_params[old_k]
+            changes.append(SymbolChange(
+                change_type="removed",
+                old_symbol=f"{old_k}={old_val}",
+                new_symbol=None,
+                file=filename,
+                line=line,
+                context=f"Parameter {old_k} removed",
+            ))
+
     return changes
 
 
